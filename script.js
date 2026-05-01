@@ -3,7 +3,6 @@
 // ════════════════════════════════════════════════════════════
 
 const API_BASE_URL = "https://script.google.com/macros/s/AKfycbyteGZJDwqJQPzvJsT5IkMVh78m9wjBvLgKuxj-MJgjYsriYrRUMxQCrKqZd13T1kO0RQ/exec";
-
 // ── JSONP (CORS-free GET requests to Apps Script) ────────────
 let _cbIdx = 0;
 function jsonp(params) {
@@ -242,50 +241,42 @@ async function pollHostGame() {
       return;
     }
 
-    // New question?
+    // New question detected — reset everything for the incoming question
     const newQuestion = data.currentQuestionIndex !== S.currentQIdx;
     if (newQuestion) {
       S.currentQIdx = data.currentQuestionIndex;
       S.currentQ    = data.question;
+      S.phase       = 'question'; // ← reset local phase so reveal triggers fresh next time
       renderHostQuestion(data);
-      // Start local timer display
       startLocalTimer(
         data.timeRemaining,
         (t) => updateHostTimer(t, data.question.timeLimit),
-        () => {}
+        () => {} // no auto-advance on expire — host clicks manually
       );
-      // Hide next/end buttons
-      document.getElementById("btn-next-q").style.display    = "none";
-      document.getElementById("btn-end-game").style.display   = "none";
-      // Hide bars
+      document.getElementById("btn-next-q").style.display   = "none";
+      document.getElementById("btn-end-game").style.display  = "none";
       ["a","b","c","d"].forEach(k => {
-        document.getElementById(`hg-bar-${k}`).style.width    = "0%";
+        document.getElementById(`hg-bar-${k}`).style.width     = "0%";
         document.getElementById(`hg-bar-${k}-pct`).textContent = "0%";
       });
       document.querySelectorAll(".hg-opt").forEach(el => el.classList.remove("is-correct"));
     }
 
-    // Update answer count
+    // Always update live answer count + player chips
     document.getElementById("hg-answered").textContent =
       `${data.answerCount} / ${data.playerCount} answered`;
-
-    // Update mini player chips
     renderHostMiniPlayers(data.players || []);
 
-    // Sync local timer with server (avoid drift)
-    if (data.phase === "question" && Math.abs(S.localTimeLeft - data.timeRemaining) > 2) {
-      startLocalTimer(data.timeRemaining, (t) => updateHostTimer(t, data.question.timeLimit), () => {});
-    }
-
-    // Reveal phase
-    if (data.phase === "reveal") {
+    // Reveal phase — only process ONCE per question (guarded by S.phase)
+    // Without this guard the block ran every 2 s and kept re-showing the button
+    if (data.phase === "reveal" && S.phase !== "reveal") {
+      S.phase = "reveal"; // ← mark so we don't re-enter on next poll
       stopLocalTimer();
       updateHostTimer(0, data.question.timeLimit);
       renderHostReveal(data);
-      // Show appropriate next button
       const isLast = data.currentQuestionIndex >= data.questionCount - 1;
-      document.getElementById("btn-next-q").style.display    = isLast ? "none"    : "flex";
-      document.getElementById("btn-end-game").style.display   = isLast ? "flex"    : "none";
+      document.getElementById("btn-next-q").style.display   = isLast ? "none" : "flex";
+      document.getElementById("btn-end-game").style.display  = isLast ? "flex" : "none";
     }
   } catch (_) { /* silently ignore */ }
 }
