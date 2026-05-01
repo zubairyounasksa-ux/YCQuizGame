@@ -2,7 +2,7 @@
 // QuizCore Multiplayer · script.js
 // ════════════════════════════════════════════════════════════
 
-const API_BASE_URL = "https://script.google.com/macros/s/AKfycbzRRbFKG9mtvBvyd_Np2nnBuAWdv7HMSgysfAjzJk1AmJl7-vhiJ29dCtIEq4mvToFwHA/exec";
+const API_BASE_URL = "https://script.google.com/macros/s/AKfycbyteGZJDwqJQPzvJsT5IkMVh78m9wjBvLgKuxj-MJgjYsriYrRUMxQCrKqZd13T1kO0RQ/exec";
 
 // ── JSONP (CORS-free GET requests to Apps Script) ────────────
 let _cbIdx = 0;
