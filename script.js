@@ -2,7 +2,8 @@
 // QuizCore Multiplayer · script.js
 // ════════════════════════════════════════════════════════════
 
-const API_BASE_URL = "https://script.google.com/macros/s/AKfycbyteGZJDwqJQPzvJsT5IkMVh78m9wjBvLgKuxj-MJgjYsriYrRUMxQCrKqZd13T1kO0RQ/exec";
+const API_BASE_URL = "YOUR_APPS_SCRIPT_URL_HERE";
+
 // ── JSONP (CORS-free GET requests to Apps Script) ────────────
 let _cbIdx = 0;
 function jsonp(params) {
@@ -59,6 +60,7 @@ const S = {
   pollTimer:    null,
   localTimer:   null,
   localTimeLeft: 0,
+  revealTimer:  null,   // auto-advance countdown after reveal
 };
 
 const CIRC = 2 * Math.PI * 44; // player timer ring circumference
@@ -77,6 +79,11 @@ function startPolling(fn, ms = 2200) {
 
 function stopPolling() {
   if (S.pollTimer) { clearInterval(S.pollTimer); S.pollTimer = null; }
+  clearRevealTimer();
+}
+
+function clearRevealTimer() {
+  if (S.revealTimer) { clearTimeout(S.revealTimer); S.revealTimer = null; }
 }
 
 function startLocalTimer(seconds, onTick, onExpire) {
@@ -136,11 +143,12 @@ document.querySelectorAll(".pq-opt").forEach(btn => {
 });
 
 function resetState() {
+  clearRevealTimer();
   Object.assign(S, {
     role: null, gameId: null, hostToken: null, pin: null,
     questionCount: 0, playerId: null, playerName: null,
     phase: 'home', currentQIdx: -1, currentQ: null, score: 0,
-    pollTimer: null, localTimer: null, localTimeLeft: 0,
+    pollTimer: null, localTimer: null, localTimeLeft: 0, revealTimer: null,
   });
 }
 
@@ -268,82 +276,39 @@ async function pollHostGame() {
     renderHostMiniPlayers(data.players || []);
 
     // Reveal phase — only process ONCE per question (guarded by S.phase)
-    // Without this guard the block ran every 2 s and kept re-showing the button
     if (data.phase === "reveal" && S.phase !== "reveal") {
-      S.phase = "reveal"; // ← mark so we don't re-enter on next poll
+      S.phase = "reveal";
       stopLocalTimer();
       updateHostTimer(0, data.question.timeLimit);
       renderHostReveal(data);
       const isLast = data.currentQuestionIndex >= data.questionCount - 1;
+
+      // Show skip button so host can advance early
       document.getElementById("btn-next-q").style.display   = isLast ? "none" : "flex";
       document.getElementById("btn-end-game").style.display  = isLast ? "flex" : "none";
+
+      // Auto-advance after 3 s — shows correct answer briefly then moves on
+      S.revealTimer = setTimeout(() => hostNextQuestion(), 3000);
     }
   } catch (_) { /* silently ignore */ }
 }
 
-function renderHostQuestion(data) {
-  const q = data.question;
-  document.getElementById("hg-counter").textContent =
-    `Q ${data.currentQuestionIndex + 1} / ${data.questionCount}`;
-  document.getElementById("hg-category").textContent = q.category;
-  document.getElementById("hg-question-text").textContent = q.text;
-  document.getElementById("hg-opt-a-text").textContent = q.options.A;
-  document.getElementById("hg-opt-b-text").textContent = q.options.B;
-  document.getElementById("hg-opt-c-text").textContent = q.options.C;
-  document.getElementById("hg-opt-d-text").textContent = q.options.D;
-  document.getElementById("hg-answered").textContent = `0 / ${data.playerCount} answered`;
-}
-
-function updateHostTimer(left, total) {
-  const HCIRC = 2 * Math.PI * 26; // r=26
-  document.getElementById("hg-timer-num").textContent = left;
-  const pct = total > 0 ? left / total : 0;
-  document.getElementById("hg-timer-arc").style.strokeDashoffset = HCIRC * (1 - pct);
-  document.getElementById("hg-timer-arc").classList.toggle("danger", pct < 0.35);
-}
-
-function renderHostReveal(data) {
-  const dist  = data.answerDistribution || { A: 0, B: 0, C: 0, D: 0 };
-  const total = Object.values(dist).reduce((a, b) => a + b, 0);
-  ["A","B","C","D"].forEach(k => {
-    const count = dist[k] || 0;
-    const pct   = total > 0 ? Math.round(count / total * 100) : 0;
-    const key   = k.toLowerCase();
-    document.getElementById(`hg-bar-${key}`).style.width     = pct + "%";
-    document.getElementById(`hg-bar-${key}-pct`).textContent = count + " (" + pct + "%)";
-  });
-  // Highlight correct answer
-  if (data.correctAnswer) {
-    const key = data.correctAnswer.toLowerCase();
-    document.querySelector(`.hg-opt-${key}`)?.classList.add("is-correct");
-  }
-}
-
-function renderHostMiniPlayers(players) {
-  const wrap = document.getElementById("hg-mini-players");
-  wrap.innerHTML = "";
-  players.slice(0, 20).forEach(p => {
-    const chip = document.createElement("div");
-    chip.className = "hg-mini-chip" + (p.answered ? " answered" : "");
-    chip.innerHTML = `${p.name}<span class="tick"> ✓</span>`;
-    wrap.appendChild(chip);
-  });
-}
-
 async function hostNextQuestion() {
+  if (S.phase === 'advancing') return; // prevent double-call (button + timeout firing together)
+  S.phase = 'advancing';
+  clearRevealTimer();
   document.getElementById("btn-next-q").style.display  = "none";
   document.getElementById("btn-end-game").style.display = "none";
   try {
     const data = await jsonp({ action: "nextQuestion", gameId: S.gameId, hostToken: S.hostToken });
-    if (!data.success) return;
+    if (!data.success) { S.phase = 'reveal'; return; }
     if (data.ended) {
       stopPolling();
-      // Fetch final leaderboard
       const lb = await jsonp({ action: "hostPoll", gameId: S.gameId, hostToken: S.hostToken });
       showFinalResults(lb.leaderboard || [], 'host');
     }
-    // Otherwise polling will pick up the new question state
-  } catch (_) { }
+    // Otherwise poll detects new currentQuestionIndex and renders next question
+  } catch (_) { S.phase = 'reveal'; }
 }
 
 // ═══════════════════════════════════════════════════════════
