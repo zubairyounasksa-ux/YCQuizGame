@@ -76,7 +76,6 @@ const S = {
   pollTimer:    null,
   localTimer:   null,
   localTimeLeft: 0,
-  revealTimer:  null,   // auto-advance countdown after reveal
 };
 
 const CIRC = 2 * Math.PI * 44; // player timer ring circumference
@@ -95,12 +94,8 @@ function startPolling(fn, ms = 2200) {
 
 function stopPolling() {
   if (S.pollTimer) { clearInterval(S.pollTimer); S.pollTimer = null; }
-  clearRevealTimer();
 }
 
-function clearRevealTimer() {
-  if (S.revealTimer) { clearTimeout(S.revealTimer); S.revealTimer = null; }
-}
 
 function startLocalTimer(seconds, onTick, onExpire) {
   stopLocalTimer();
@@ -159,12 +154,11 @@ document.querySelectorAll(".pq-opt").forEach(btn => {
 });
 
 function resetState() {
-  clearRevealTimer();
   Object.assign(S, {
     role: null, gameId: null, hostToken: null, pin: null,
     questionCount: 0, playerId: null, playerName: null,
     phase: 'home', currentQIdx: -1, currentQ: null, score: 0,
-    pollTimer: null, localTimer: null, localTimeLeft: 0, revealTimer: null,
+    pollTimer: null, localTimer: null, localTimeLeft: 0,
   });
 }
 
@@ -248,9 +242,12 @@ async function hostStartGame() {
     const data = await jsonp({ action: "startGame", gameId: S.gameId, hostToken: S.hostToken });
     if (!data.success) { showError(data.error || "Could not start game."); return; }
     stopPolling();
-    S.phase = 'question';
+    S.phase       = 'question';
+    S.currentQIdx = -1;   // ← force Q1 to always be treated as "new question"
+    S.currentQ    = null;
     showScreen("screen-host-game");
-    startPolling(pollHostGame, 2000);
+    // Small delay so the sheet write completes before first poll
+    setTimeout(() => startPolling(pollHostGame, 2500), 800);
   } catch (err) { showError(err.message); }
 }
 
@@ -299,32 +296,26 @@ async function pollHostGame() {
       renderHostReveal(data);
       const isLast = data.currentQuestionIndex >= data.questionCount - 1;
 
-      // Show skip button so host can advance early
+      // Host clicks "Next Question" to advance — shown after reveal
       document.getElementById("btn-next-q").style.display   = isLast ? "none" : "flex";
       document.getElementById("btn-end-game").style.display  = isLast ? "flex" : "none";
-
-      // Auto-advance after 3 s — shows correct answer briefly then moves on
-      S.revealTimer = setTimeout(() => hostNextQuestion(), 3000);
     }
   } catch (_) { /* silently ignore */ }
 }
 
 async function hostNextQuestion() {
-  if (S.phase === 'advancing') return; // prevent double-call (button + timeout firing together)
-  S.phase = 'advancing';
-  clearRevealTimer();
   document.getElementById("btn-next-q").style.display  = "none";
   document.getElementById("btn-end-game").style.display = "none";
   try {
     const data = await jsonp({ action: "nextQuestion", gameId: S.gameId, hostToken: S.hostToken });
-    if (!data.success) { S.phase = 'reveal'; return; }
+    if (!data.success) return;
     if (data.ended) {
       stopPolling();
       const lb = await jsonp({ action: "hostPoll", gameId: S.gameId, hostToken: S.hostToken });
       showFinalResults(lb.leaderboard || [], 'host');
     }
     // Otherwise poll detects new currentQuestionIndex and renders next question
-  } catch (_) { S.phase = 'reveal'; }
+  } catch (_) { }
 }
 
 // ═══════════════════════════════════════════════════════════
