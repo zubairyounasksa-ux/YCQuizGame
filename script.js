@@ -2,12 +2,28 @@
 // QuizCore Multiplayer · script.js
 // ════════════════════════════════════════════════════════════
 
+// ▼▼▼ PASTE YOUR APPS SCRIPT URL BELOW ▼▼▼
 const API_BASE_URL = "https://script.google.com/macros/s/AKfycbwnLrE5_3kWMqDGYsErbMaiVmGn5FUrrvSkVMLXtTmD3KegdT6gq4IsP8Y69QXlUAUHRA/exec";
+// ▲▲▲ PASTE YOUR APPS SCRIPT URL ABOVE ▲▲▲
+
+// Guard — catch missing URL before any button is clicked
+if (!API_BASE_URL || API_BASE_URL.includes("YOUR_APPS_SCRIPT")) {
+  document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("error-msg").textContent =
+      "API_BASE_URL is not set. Open script.js and paste your Apps Script URL on line 2.";
+    document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+    document.getElementById("screen-error").classList.add("active");
+  });
+}
 
 // ── JSONP (CORS-free GET requests to Apps Script) ────────────
 let _cbIdx = 0;
 function jsonp(params) {
   return new Promise((resolve, reject) => {
+    if (!API_BASE_URL || API_BASE_URL.includes("YOUR_APPS_SCRIPT")) {
+      reject(new Error("API_BASE_URL is not set in script.js — paste your Apps Script URL on line 2."));
+      return;
+    }
     const cbName  = `_qcb${++_cbIdx}`;
     const timeout = setTimeout(() => {
       delete window[cbName];
