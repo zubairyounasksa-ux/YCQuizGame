@@ -2,28 +2,12 @@
 // QuizCore Multiplayer · script.js
 // ════════════════════════════════════════════════════════════
 
-// ▼▼▼ PASTE YOUR APPS SCRIPT URL BELOW ▼▼▼
-const API_BASE_URL = "https://script.google.com/macros/s/AKfycbxBa4l1RaBJD4OaKe7Ush6B9LXVpmtQcMzOJwcGvcovohOxt21lLCLVvutbzGohhCKBVA/exec";
-// ▲▲▲ PASTE YOUR APPS SCRIPT URL ABOVE ▲▲▲
-
-// Guard — catch missing URL before any button is clicked
-if (!API_BASE_URL || API_BASE_URL.includes("YOUR_APPS_SCRIPT")) {
-  document.addEventListener("DOMContentLoaded", () => {
-    document.getElementById("error-msg").textContent =
-      "API_BASE_URL is not set. Open script.js and paste your Apps Script URL on line 2.";
-    document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
-    document.getElementById("screen-error").classList.add("active");
-  });
-}
+const API_BASE_URL = "https://script.google.com/macros/s/AKfycbzjj1idHgeNtLPsoIu6BgnWgm53ib3VhWxVUtkUEmotxXw5Wdf8pmXxsrF5ps7Wb9V2BQ/exec";
 
 // ── JSONP (CORS-free GET requests to Apps Script) ────────────
 let _cbIdx = 0;
 function jsonp(params) {
   return new Promise((resolve, reject) => {
-    if (!API_BASE_URL || API_BASE_URL.includes("YOUR_APPS_SCRIPT")) {
-      reject(new Error("API_BASE_URL is not set in script.js — paste your Apps Script URL on line 2."));
-      return;
-    }
     const cbName  = `_qcb${++_cbIdx}`;
     const timeout = setTimeout(() => {
       delete window[cbName];
@@ -95,7 +79,6 @@ function startPolling(fn, ms = 2200) {
 function stopPolling() {
   if (S.pollTimer) { clearInterval(S.pollTimer); S.pollTimer = null; }
 }
-
 
 function startLocalTimer(seconds, onTick, onExpire) {
   stopLocalTimer();
@@ -242,12 +225,9 @@ async function hostStartGame() {
     const data = await jsonp({ action: "startGame", gameId: S.gameId, hostToken: S.hostToken });
     if (!data.success) { showError(data.error || "Could not start game."); return; }
     stopPolling();
-    S.phase       = 'question';
-    S.currentQIdx = -1;   // ← force Q1 to always be treated as "new question"
-    S.currentQ    = null;
+    S.phase = 'question';
     showScreen("screen-host-game");
-    // Small delay so the sheet write completes before first poll
-    setTimeout(() => startPolling(pollHostGame, 2500), 800);
+    startPolling(pollHostGame, 2000);
   } catch (err) { showError(err.message); }
 }
 
@@ -262,45 +242,101 @@ async function pollHostGame() {
       return;
     }
 
-    // New question detected — reset everything for the incoming question
+    // New question?
     const newQuestion = data.currentQuestionIndex !== S.currentQIdx;
     if (newQuestion) {
       S.currentQIdx = data.currentQuestionIndex;
       S.currentQ    = data.question;
-      S.phase       = 'question'; // ← reset local phase so reveal triggers fresh next time
       renderHostQuestion(data);
+      // Start local timer display
       startLocalTimer(
         data.timeRemaining,
         (t) => updateHostTimer(t, data.question.timeLimit),
-        () => {} // no auto-advance on expire — host clicks manually
+        () => {}
       );
-      document.getElementById("btn-next-q").style.display   = "none";
-      document.getElementById("btn-end-game").style.display  = "none";
+      // Hide next/end buttons
+      document.getElementById("btn-next-q").style.display    = "none";
+      document.getElementById("btn-end-game").style.display   = "none";
+      // Hide bars
       ["a","b","c","d"].forEach(k => {
-        document.getElementById(`hg-bar-${k}`).style.width     = "0%";
+        document.getElementById(`hg-bar-${k}`).style.width    = "0%";
         document.getElementById(`hg-bar-${k}-pct`).textContent = "0%";
       });
       document.querySelectorAll(".hg-opt").forEach(el => el.classList.remove("is-correct"));
     }
 
-    // Always update live answer count + player chips
+    // Update answer count
     document.getElementById("hg-answered").textContent =
       `${data.answerCount} / ${data.playerCount} answered`;
+
+    // Update mini player chips
     renderHostMiniPlayers(data.players || []);
 
-    // Reveal phase — only process ONCE per question (guarded by S.phase)
-    if (data.phase === "reveal" && S.phase !== "reveal") {
-      S.phase = "reveal";
+    // Sync local timer with server (avoid drift)
+    if (data.phase === "question" && Math.abs(S.localTimeLeft - data.timeRemaining) > 2) {
+      startLocalTimer(data.timeRemaining, (t) => updateHostTimer(t, data.question.timeLimit), () => {});
+    }
+
+    // Reveal phase
+    if (data.phase === "reveal") {
       stopLocalTimer();
       updateHostTimer(0, data.question.timeLimit);
       renderHostReveal(data);
+      // Show appropriate next button
       const isLast = data.currentQuestionIndex >= data.questionCount - 1;
-
-      // Host clicks "Next Question" to advance — shown after reveal
-      document.getElementById("btn-next-q").style.display   = isLast ? "none" : "flex";
-      document.getElementById("btn-end-game").style.display  = isLast ? "flex" : "none";
+      document.getElementById("btn-next-q").style.display    = isLast ? "none"    : "flex";
+      document.getElementById("btn-end-game").style.display   = isLast ? "flex"    : "none";
     }
   } catch (_) { /* silently ignore */ }
+}
+
+function renderHostQuestion(data) {
+  const q = data.question;
+  document.getElementById("hg-counter").textContent =
+    `Q ${data.currentQuestionIndex + 1} / ${data.questionCount}`;
+  document.getElementById("hg-category").textContent = q.category;
+  document.getElementById("hg-question-text").textContent = q.text;
+  document.getElementById("hg-opt-a-text").textContent = q.options.A;
+  document.getElementById("hg-opt-b-text").textContent = q.options.B;
+  document.getElementById("hg-opt-c-text").textContent = q.options.C;
+  document.getElementById("hg-opt-d-text").textContent = q.options.D;
+  document.getElementById("hg-answered").textContent = `0 / ${data.playerCount} answered`;
+}
+
+function updateHostTimer(left, total) {
+  const HCIRC = 2 * Math.PI * 26; // r=26
+  document.getElementById("hg-timer-num").textContent = left;
+  const pct = total > 0 ? left / total : 0;
+  document.getElementById("hg-timer-arc").style.strokeDashoffset = HCIRC * (1 - pct);
+  document.getElementById("hg-timer-arc").classList.toggle("danger", pct < 0.35);
+}
+
+function renderHostReveal(data) {
+  const dist  = data.answerDistribution || { A: 0, B: 0, C: 0, D: 0 };
+  const total = Object.values(dist).reduce((a, b) => a + b, 0);
+  ["A","B","C","D"].forEach(k => {
+    const count = dist[k] || 0;
+    const pct   = total > 0 ? Math.round(count / total * 100) : 0;
+    const key   = k.toLowerCase();
+    document.getElementById(`hg-bar-${key}`).style.width     = pct + "%";
+    document.getElementById(`hg-bar-${key}-pct`).textContent = count + " (" + pct + "%)";
+  });
+  // Highlight correct answer
+  if (data.correctAnswer) {
+    const key = data.correctAnswer.toLowerCase();
+    document.querySelector(`.hg-opt-${key}`)?.classList.add("is-correct");
+  }
+}
+
+function renderHostMiniPlayers(players) {
+  const wrap = document.getElementById("hg-mini-players");
+  wrap.innerHTML = "";
+  players.slice(0, 20).forEach(p => {
+    const chip = document.createElement("div");
+    chip.className = "hg-mini-chip" + (p.answered ? " answered" : "");
+    chip.innerHTML = `${p.name}<span class="tick"> ✓</span>`;
+    wrap.appendChild(chip);
+  });
 }
 
 async function hostNextQuestion() {
@@ -311,10 +347,11 @@ async function hostNextQuestion() {
     if (!data.success) return;
     if (data.ended) {
       stopPolling();
+      // Fetch final leaderboard
       const lb = await jsonp({ action: "hostPoll", gameId: S.gameId, hostToken: S.hostToken });
       showFinalResults(lb.leaderboard || [], 'host');
     }
-    // Otherwise poll detects new currentQuestionIndex and renders next question
+    // Otherwise polling will pick up the new question state
   } catch (_) { }
 }
 
