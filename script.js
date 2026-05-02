@@ -3,7 +3,7 @@
 // ════════════════════════════════════════════════════════════
 
 // ▼▼▼ PASTE YOUR APPS SCRIPT URL BELOW ▼▼▼
-const API_BASE_URL = "https://script.google.com/macros/s/AKfycbwnLrE5_3kWMqDGYsErbMaiVmGn5FUrrvSkVMLXtTmD3KegdT6gq4IsP8Y69QXlUAUHRA/exec";
+const API_BASE_URL = "https://script.google.com/macros/s/AKfycbxBa4l1RaBJD4OaKe7Ush6B9LXVpmtQcMzOJwcGvcovohOxt21lLCLVvutbzGohhCKBVA/exec";
 // ▲▲▲ PASTE YOUR APPS SCRIPT URL ABOVE ▲▲▲
 
 // Guard — catch missing URL before any button is clicked
